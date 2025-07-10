@@ -1,0 +1,14 @@
+{
+    "editor": {
+        "formatOnSave": true,
+        "tabSize": 2,
+        "insertSpaces": true
+    },
+    "github": {
+        "enabled": true,
+        "tokenPath": "~/.cursor/mcp.json"
+    },
+    "terminal": {
+        "integrated": true
+    }
+} 
