@@ -1,0 +1,32 @@
+{
+    "version": "1.0",
+    "features": {
+        "token_validation": {
+            "enabled": true,
+            "check_interval": "daily"
+        },
+        "auto_auth": {
+            "enabled": true,
+            "method": "token"
+        },
+        "operations": {
+            "push": {
+                "require_token": true,
+                "require_validation": true
+            },
+            "pull": {
+                "require_token": true,
+                "require_validation": true
+            },
+            "clone": {
+                "require_token": true,
+                "require_validation": true
+            }
+        }
+    },
+    "paths": {
+        "token_file": "~/.cursor/mcp.json",
+        "scripts_dir": "~/.cursor/scripts",
+        "rules_dir": "~/.cursor/rules/github"
+    }
+} 
