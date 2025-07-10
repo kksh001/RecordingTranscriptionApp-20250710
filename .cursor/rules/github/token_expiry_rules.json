@@ -1,0 +1,9 @@
+{
+    "warning_days": 30,
+    "critical_days": 7,
+    "check_interval": "daily",
+    "notification": {
+        "enabled": true,
+        "methods": ["terminal", "notification"]
+    }
+} 
