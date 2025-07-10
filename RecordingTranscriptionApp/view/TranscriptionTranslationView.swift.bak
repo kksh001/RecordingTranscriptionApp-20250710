@@ -1,0 +1,359 @@
+import SwiftUI
+import UIKit
+
+struct TranscriptSegment: Identifiable, Hashable {
+    let id: UUID = UUID()
+    let text: String
+}
+
+struct ViewOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+struct OffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+struct SyncedScrollView<Content: View>: UIViewRepresentable {
+    @Binding var offset: CGFloat
+    @Binding var syncOffset: CGFloat
+    @Binding var isSyncing: Bool
+    let content: () -> Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        let hosting = UIHostingController(rootView: content())
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(hosting.view)
+        NSLayoutConstraint.activate([
+            hosting.view.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            hosting.view.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            hosting.view.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+        ])
+        scrollView.delegate = context.coordinator
+        scrollView.showsVerticalScrollIndicator = true
+        return scrollView
+    }
+
+    func updateUIView(_ uiView: UIScrollView, context: Context) {
+        if !isSyncing && abs(uiView.contentOffset.y - syncOffset) > 1 {
+            isSyncing = true
+            uiView.setContentOffset(CGPoint(x: 0, y: syncOffset), animated: false)
+            DispatchQueue.main.async {
+                isSyncing = false
+            }
+        }
+    }
+
+    class Coordinator: NSObject, UIScrollViewDelegate {
+        var parent: SyncedScrollView
+        init(_ parent: SyncedScrollView) { self.parent = parent }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            if !parent.isSyncing {
+                parent.offset = scrollView.contentOffset.y
+            }
+        }
+    }
+}
+
+struct TranscriptionTranslationView: View {
+    let sourceLanguage: String
+    @State var targetLanguage: String
+    let transcriptText: String
+    @State var translatedText: String
+    let systemLanguage: String
+    let defaultTargetLanguage: String
+
+    // 假数据分段（20条）
+    @State private var transcriptSegments: [TranscriptSegment] = (1...20).map {
+        TranscriptSegment(text: "This is transcript segment number \($0). " + String(repeating: "Sample text. ", count: 5))
+    }
+
+    enum SectionType { case transcription, translation }
+    @State private var expandedSection: SectionType? = nil
+    @State private var showLanguageSheet = false
+    let availableLanguages = ["English", "Chinese", "Spanish"]
+    @State private var autoScrollToBottom = true
+    @State private var showScrollToBottomButton = false
+    @State private var currentSyncedId: UUID? = nil
+    @State private var isSyncingScroll = false
+    @State private var translationSegments: [TranscriptSegment] = (1...20).map {
+        TranscriptSegment(text: "This is translation segment number \($0). " + String(repeating: "Sample translation. ", count: 5))
+    }
+    @State private var transcriptionOffset: CGFloat = 0
+    @State private var translationOffset: CGFloat = 0
+
+    var showTranslation: Bool {
+        _ = defaultTargetLanguage.isEmpty ? systemLanguage : defaultTargetLanguage
+        return sourceLanguage != targetLanguage && !targetLanguage.isEmpty
+    }
+
+    var body: some View {
+        VStack {
+            Button("Add Segment") {
+                transcriptSegments.append(TranscriptSegment(text: "New segment at \(Date())"))
+            }
+            .padding(.vertical, 8)
+            VStack(spacing: 0) {
+                if expandedSection == .transcription {
+                    TranscriptionSection(
+                        segments: transcriptSegments,
+                        autoScrollToBottom: $autoScrollToBottom,
+                        showScrollToBottomButton: $showScrollToBottomButton,
+                        currentSyncedId: $currentSyncedId,
+                        isSyncingScroll: $isSyncingScroll
+                    )
+                    .onLongPressGesture {
+                        withAnimation { expandedSection = nil }
+                    }
+                } else if expandedSection == .translation {
+                    TranslationSection(
+                        segments: translationSegments,
+                        onChangeLanguage: { showLanguageSheet = true },
+                        currentSyncedId: $currentSyncedId,
+                        isSyncingScroll: $isSyncingScroll
+                    )
+                    .onLongPressGesture {
+                        withAnimation { expandedSection = nil }
+                    }
+                } else if showTranslation {
+                    VStack(spacing: 0) {
+                        SyncedScrollView(offset: $transcriptionOffset, syncOffset: $translationOffset, isSyncing: $isSyncingScroll) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(transcriptSegments) { segment in
+                                    Text(segment.text)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 4)
+                                }
+                            }
+                            .padding()
+                        }
+                        .onLongPressGesture {
+                            withAnimation { expandedSection = .transcription }
+                        }
+                        Divider()
+                        SyncedScrollView(offset: $translationOffset, syncOffset: $transcriptionOffset, isSyncing: $isSyncingScroll) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(translationSegments) { segment in
+                                    Text(segment.text)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 4)
+                                }
+                            }
+                            .padding()
+                        }
+                        .onLongPressGesture {
+                            withAnimation { expandedSection = .translation }
+                        }
+                    }
+                } else {
+                    TranscriptionSection(
+                        segments: transcriptSegments,
+                        autoScrollToBottom: $autoScrollToBottom,
+                        showScrollToBottomButton: $showScrollToBottomButton,
+                        currentSyncedId: $currentSyncedId,
+                        isSyncingScroll: $isSyncingScroll
+                    )
+                }
+            }
+            .animation(.easeInOut, value: expandedSection)
+            .navigationTitle("Transcription & Translation")
+            .background(Color(UIColor.systemGroupedBackground))
+            .confirmationDialog("Translate to another language?", isPresented: $showLanguageSheet, titleVisibility: .visible) {
+                ForEach(availableLanguages.filter { $0 != sourceLanguage }, id: \.self) { lang in
+                    Button(lang) {
+                        targetLanguage = lang
+                        translatedText = "This is a sample translation in \(lang)."
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+}
+
+struct TranscriptionSection: View {
+    let segments: [TranscriptSegment]
+    @Binding var autoScrollToBottom: Bool
+    @Binding var showScrollToBottomButton: Bool
+    @Binding var currentSyncedId: UUID?
+    @Binding var isSyncingScroll: Bool
+    @State private var scrollToId: UUID? = nil
+
+    var body: some View {
+        ZStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(segments) { segment in
+                            Text(segment.text)
+                                .id(segment.id)
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear
+                                            .onAppear {
+                                                if !isSyncingScroll {
+                                                    currentSyncedId = segment.id
+                                                }
+                                            }
+                                    }
+                                )
+                        }
+                    }
+                }
+                .gesture(
+                    DragGesture().onChanged { _ in
+                        autoScrollToBottom = false
+                        showScrollToBottomButton = true
+                    }
+                )
+                .onChange(of: segments.count) { _ in
+                    if autoScrollToBottom, let last = segments.last {
+                        withAnimation {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: scrollToId) { id in
+                    if let id = id {
+                        withAnimation {
+                            proxy.scrollTo(id, anchor: .bottom)
+                        }
+                        scrollToId = nil
+                    }
+                }
+                .onChange(of: currentSyncedId) { id in
+                    guard let id = id, !isSyncingScroll else { return }
+                    isSyncingScroll = true
+                    withAnimation {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        isSyncingScroll = false
+                    }
+                }
+            }
+            if showScrollToBottomButton {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            if let last = segments.last {
+                                scrollToId = last.id
+                                autoScrollToBottom = true
+                                showScrollToBottomButton = false
+                            }
+                        }) {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 40, height: 40)
+                                .overlay(
+                                    Image(systemName: "arrow.down")
+                                        .foregroundColor(.white)
+                                )
+                        }
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 16)
+                        .zIndex(1)
+                    }
+                }
+                .allowsHitTesting(true)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+struct TranslationSection: View {
+    let segments: [TranscriptSegment]
+    let onChangeLanguage: () -> Void
+    @Binding var currentSyncedId: UUID?
+    @Binding var isSyncingScroll: Bool
+    @State private var scrollToId: UUID? = nil
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                SectionHeader(title: "Translation")
+                Spacer()
+                Button(action: onChangeLanguage) {
+                    Image(systemName: "globe")
+                        .font(.title3)
+                }
+                .padding(.trailing)
+            }
+            ZStack {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(segments) { segment in
+                                Text(segment.text)
+                                    .id(segment.id)
+                                    .background(
+                                        GeometryReader { geo in
+                                            Color.clear
+                                                .onAppear {
+                                                    if !isSyncingScroll {
+                                                        currentSyncedId = segment.id
+                                                    }
+                                                }
+                                        }
+                                    )
+                            }
+                        }
+                    }
+                    .onChange(of: currentSyncedId) { id in
+                        guard let id = id, !isSyncingScroll else { return }
+                        isSyncingScroll = true
+                        withAnimation {
+                            proxy.scrollTo(id, anchor: .top)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            isSyncingScroll = false
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+struct SectionHeader: View {
+    let title: String
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.headline)
+                .padding(.leading)
+            Spacer()
+        }
+        .frame(height: 44)
+        .background(Color(UIColor.secondarySystemBackground))
+    }
+}
+
+struct TranscriptionTranslationView_Previews: PreviewProvider {
+    static var previews: some View {
+        TranscriptionTranslationView(
+            sourceLanguage: "English",
+            targetLanguage: "English",
+            transcriptText: "This is a sample transcript. You can long-press this area to trigger the language selection dialog.",
+            translatedText: "",
+            systemLanguage: "en",
+            defaultTargetLanguage: "English"
+        )
+    }
+} 
